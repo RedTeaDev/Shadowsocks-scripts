@@ -52,6 +52,8 @@ shadowsocks_rust_dir="/etc/shadowsocks-rust"
 shadowsocks_rust_systemd="/etc/systemd/system/ssserver.service"
 shadowsocks_rust_init="/etc/init.d/shadowsocks-rust"
 ssrust_latest_api="https://api.github.com/repos/shadowsocks/shadowsocks-rust/releases/latest"
+shadowsocks_rust_systemd_src="${gh_dl_url}${script_folder}/ssserver.service"
+shadowsocks_rust_sysv_src="${gh_dl_url}${script_folder}/shadowsocks-rust"
 
 common_ciphers=(
     aes-256-gcm
@@ -91,6 +93,13 @@ r_ciphers=(
     chacha20
     salsa20
     rc4-md5
+)
+
+# For Shadowsocks-Rust only
+rust_ciphers=(
+    chacha20-ietf-poly1305
+    aes-128-gcm
+    aes-256-gcm
 )
 
 # Reference URL:
@@ -407,6 +416,23 @@ install_prepare_cipher() {
                 continue
             fi
             shadowsockscipher=${r_ciphers[$pick - 1]}
+        elif [ "${selected}" == "3" ]; then
+            for ((i = 1; i <= ${#rust_ciphers[@]}; i++)); do
+                hint="${rust_ciphers[$i - 1]}"
+                echo -e "${green}${i}${plain}) ${hint}"
+            done
+            read -p "Which cipher you'd select(Default: ${rust_ciphers[0]}):" pick
+            [ -z "$pick" ] && pick=1
+            expr ${pick} + 1 &>/dev/null
+            if [ $? -ne 0 ]; then
+                echo -e "[${red}Error${plain}] Please enter a number"
+                continue
+            fi
+            if [[ "$pick" -lt 1 || "$pick" -gt ${#rust_ciphers[@]} ]]; then
+                echo -e "[${red}Error${plain}] Please enter a number between 1 and ${#rust_ciphers[@]}"
+                continue
+            fi
+            shadowsockscipher=${rust_ciphers[$pick - 1]}
         fi
 
         echo
@@ -737,27 +763,61 @@ download_rust_binaries() {
         i386|i686) arch_pat="i686";;
         *) arch_pat="x86_64";;
     esac
-    # Try to prefer musl for compatibility, fallback to gnu
-    rust_asset_url=$(wget --no-check-certificate -qO- "${ssrust_latest_api}" \
-        | grep -o '"browser_download_url": *"[^"]\+"' \
-        | cut -d '"' -f 4 \
-        | grep -E "linux" \
-        | grep -E "${arch_pat}" \
-        | grep -E '\\.tar\\.xz$' \
-        | grep -E 'musl|gnu' \
-        | head -n 1)
+    # First: try construct URL by tag + known triples
+    local latest_json=$(wget --no-check-certificate -qO- "${ssrust_latest_api}")
+    local tag=$(echo "$latest_json" | grep -o '"tag_name" *: *"[^"]\+"' | cut -d '"' -f4)
+    local try_urls=()
+    if [ -n "$tag" ]; then
+        case "$arch_pat" in
+            x86_64)
+                try_urls+=(
+                    "https://github.com/shadowsocks/shadowsocks-rust/releases/download/${tag}/shadowsocks-${tag}.x86_64-unknown-linux-musl.tar.xz"
+                    "https://github.com/shadowsocks/shadowsocks-rust/releases/download/${tag}/shadowsocks-${tag}.x86_64-unknown-linux-gnu.tar.xz"
+                    "https://github.com/shadowsocks/shadowsocks-rust/releases/download/${tag}/shadowsocks-${tag}.x86_64-unknown-linux.tar.xz"
+                )
+                ;;
+            aarch64)
+                try_urls+=(
+                    "https://github.com/shadowsocks/shadowsocks-rust/releases/download/${tag}/shadowsocks-${tag}.aarch64-unknown-linux-musl.tar.xz"
+                    "https://github.com/shadowsocks/shadowsocks-rust/releases/download/${tag}/shadowsocks-${tag}.aarch64-unknown-linux-gnu.tar.xz"
+                    "https://github.com/shadowsocks/shadowsocks-rust/releases/download/${tag}/shadowsocks-${tag}.aarch64-unknown-linux.tar.xz"
+                )
+                ;;
+            armv7)
+                try_urls+=(
+                    "https://github.com/shadowsocks/shadowsocks-rust/releases/download/${tag}/shadowsocks-${tag}.armv7-unknown-linux-musleabihf.tar.xz"
+                    "https://github.com/shadowsocks/shadowsocks-rust/releases/download/${tag}/shadowsocks-${tag}.armv7-unknown-linux-gnueabihf.tar.xz"
+                    "https://github.com/shadowsocks/shadowsocks-rust/releases/download/${tag}/shadowsocks-${tag}.arm-unknown-linux-gnueabihf.tar.xz"
+                )
+                ;;
+            i686)
+                try_urls+=(
+                    "https://github.com/shadowsocks/shadowsocks-rust/releases/download/${tag}/shadowsocks-${tag}.i686-unknown-linux-musl.tar.xz"
+                    "https://github.com/shadowsocks/shadowsocks-rust/releases/download/${tag}/shadowsocks-${tag}.i686-unknown-linux-gnu.tar.xz"
+                    "https://github.com/shadowsocks/shadowsocks-rust/releases/download/${tag}/shadowsocks-${tag}.i686-unknown-linux.tar.xz"
+                )
+                ;;
+        esac
+    fi
 
+    local rust_asset_url=""
+    for u in "${try_urls[@]}"; do
+        wget --no-check-certificate -q --spider "$u" && { rust_asset_url="$u"; break; }
+    done
+
+    # Fallback: parse assets' browser_download_url
     if [ -z "$rust_asset_url" ]; then
-        rust_asset_url=$(wget --no-check-certificate -qO- "${ssrust_latest_api}" \
-            | grep -o '"browser_download_url": *"[^"]\+"' \
-            | cut -d '"' -f 4 \
-            | grep -E "linux" \
+        rust_asset_url=$(echo "$latest_json" \
+            | grep -o '"browser_download_url" *: *"[^\"]\+"' \
+            | cut -d '"' -f4 \
+            | grep -Ei "(linux).*(${arch_pat})" \
             | grep -E '\\.tar\\.xz$' \
             | head -n 1)
     fi
 
     if [ -z "$rust_asset_url" ]; then
         echo -e "[${red}Error${plain}] Failed to determine shadowsocks-rust binary download URL."
+        echo -e "[${yellow}Warning${plain}] Please check release assets for your platform manually."
         exit 1
     fi
 
@@ -766,43 +826,27 @@ download_rust_binaries() {
     download "$rust_pkg" "$rust_asset_url"
 
     echo -e "[${green}Info${plain}] Extracting ${rust_pkg}..."
-    tar -xJf "$rust_pkg"
+    local tmp_dir=$(mktemp -d)
+    tar -xJf "$rust_pkg" -C "$tmp_dir"
 
-    # Find ssserver in extracted folder
-    local unpack_dir=$(tar -tf "$rust_pkg" | head -1 | cut -d/ -f1)
-    if [ -z "$unpack_dir" ]; then
-        echo -e "[${red}Error${plain}] Failed to extract shadowsocks-rust package."
+    # Find ssserver in extracted content (handle both flat and directory-packed tarballs)
+    local ssserver_path="$(find "$tmp_dir" -maxdepth 2 -type f -name ssserver 2>/dev/null | head -n 1)"
+    if [ -n "$ssserver_path" ]; then
+        install -m 755 "$ssserver_path" /usr/local/bin/ssserver
+    else
+        echo -e "[${red}Error${plain}] ssserver binary not found in the package."
+        rm -rf "$tmp_dir"
         exit 1
     fi
 
-    # Install binaries
-    if [ -f "${unpack_dir}/ssserver" ]; then
-        install -m 755 "${unpack_dir}/ssserver" /usr/local/bin/ssserver
-    elif [ -f "${unpack_dir}/bin/ssserver" ]; then
-        install -m 755 "${unpack_dir}/bin/ssserver" /usr/local/bin/ssserver
-    else
-        # Try locating anywhere
-        local ssserver_path=$(find "${unpack_dir}" -type f -name ssserver | head -n 1)
-        if [ -n "$ssserver_path" ]; then
-            install -m 755 "$ssserver_path" /usr/local/bin/ssserver
-        else
-            echo -e "[${red}Error${plain}] ssserver binary not found in the package."
-            exit 1
-        fi
-    fi
-
     # Optionally install ssurl for QR helpers
-    local ssurl_path=""
-    if [ -f "${unpack_dir}/ssurl" ]; then
-        ssurl_path="${unpack_dir}/ssurl"
-    elif [ -f "${unpack_dir}/bin/ssurl" ]; then
-        ssurl_path="${unpack_dir}/bin/ssurl"
-    else
-        ssurl_path=$(find "${unpack_dir}" -type f -name ssurl | head -n 1)
-    fi
+    local ssurl_path="$(find "$tmp_dir" -maxdepth 2 -type f -name ssurl 2>/dev/null | head -n 1)"
     if [ -n "$ssurl_path" ]; then
         install -m 755 "$ssurl_path" /usr/local/bin/ssurl || true
     fi
+
+    # Cleanup temp extraction directory
+    rm -rf "$tmp_dir"
 }
 
 install_shadowsocks_rust() {
@@ -818,96 +862,13 @@ install_shadowsocks_rust() {
 
     # Setup service (prefer systemd)
     if command -v systemctl >/dev/null 2>&1; then
-        cat >"${shadowsocks_rust_systemd}" <<-EOF
-[Unit]
-Description=Shadowsocks-Rust Server (ssserver)
-After=network.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-User=nobody
-AmbientCapabilities=CAP_NET_BIND_SERVICE
-ExecStart=/usr/local/bin/ssserver -c ${shadowsocks_rust_config} -a nobody
-Restart=on-failure
-RestartSec=3s
-LimitNOFILE=1048576
-
-[Install]
-WantedBy=multi-user.target
-EOF
+        mkdir -p "$(dirname ${shadowsocks_rust_systemd})"
+        download "${shadowsocks_rust_systemd}" "${shadowsocks_rust_systemd_src}"
         systemctl daemon-reload
         systemctl enable ssserver >/dev/null 2>&1 || true
     else
-        # SysV init script: copy from repo scripts/ if available, otherwise fallback to heredoc
-        if [ -f "${cur_dir}/scripts/shadowsocks-rust" ]; then
-            install -m 755 "${cur_dir}/scripts/shadowsocks-rust" "${shadowsocks_rust_init}"
-        else
-            cat >"${shadowsocks_rust_init}" <<-'EOF'
-#!/bin/sh
-### BEGIN INIT INFO
-# Provides:          shadowsocks-rust
-# Required-Start:    $network $local_fs
-# Required-Stop:     $network $local_fs
-# Default-Start:     2 3 4 5
-# Default-Stop:      0 1 6
-# Short-Description: Shadowsocks-Rust Server
-### END INIT INFO
-# chkconfig: 2345 20 80
-# description: Shadowsocks-Rust Server
-
-NAME=ssserver
-DAEMON=/usr/local/bin/ssserver
-CONF=/etc/shadowsocks-rust/config.json
-PIDFILE=/var/run/ssserver.pid
-LOGFILE=/var/log/ssserver.log
-USER=nobody
-
-start() {
-    echo -n "Starting $NAME: "
-    nohup "$DAEMON" -c "$CONF" -a "$USER" >>"$LOGFILE" 2>&1 &
-    echo $! > "$PIDFILE"
-    echo "done."
-}
-
-stop() {
-    echo -n "Stopping $NAME: "
-    if [ -f "$PIDFILE" ]; then
-        kill $(cat "$PIDFILE") 2>/dev/null || true
-        rm -f "$PIDFILE"
-    else
-        pkill -f "$DAEMON" 2>/dev/null || true
-    fi
-    echo "done."
-}
-
-restart() {
-    stop
-    sleep 1
-    start
-}
-
-status() {
-    if [ -f "$PIDFILE" ] && ps -p $(cat "$PIDFILE") >/dev/null 2>&1; then
-        echo "$NAME is running (pid $(cat \"$PIDFILE\"))"
-        exit 0
-    fi
-    pgrep -f "$DAEMON" >/dev/null 2>&1 && { echo "$NAME is running"; exit 0; }
-    echo "$NAME is stopped"
-    exit 3
-}
-
-case "$1" in
-    start) start ;;
-    stop) stop ;;
-    restart) restart ;;
-    status) status ;;
-    *) echo "Usage: $0 {start|stop|restart|status}" ; exit 1 ;;
-esac
-exit 0
-EOF
-            chmod +x "${shadowsocks_rust_init}"
-        fi
+        download "${shadowsocks_rust_init}" "${shadowsocks_rust_sysv_src}"
+        chmod +x "${shadowsocks_rust_init}"
         local service_name=$(basename ${shadowsocks_rust_init})
         if check_sys packageManager yum; then
             chkconfig --add ${service_name}
@@ -920,9 +881,12 @@ EOF
 
 install_completed_rust() {
     clear
+    manager="*Unknown*"
     if command -v systemctl >/dev/null 2>&1; then
+        manager="systemctl status ssserver"
         systemctl start ssserver
     else
+        manager="service shadowsocks-rust"
         ${shadowsocks_rust_init} start
     fi
     echo
@@ -932,6 +896,7 @@ install_completed_rust() {
     echo -e "Your Password         : ${red} ${shadowsockspwd} ${plain}"
     echo -e "Your Encryption Method: ${red} ${shadowsockscipher} ${plain}"
     echo -e "Your Config File      : ${red} ${shadowsocks_rust_config} ${plain}"
+    echo -e "You can manage via    : ${red} ${manager} ${plain}"
 }
 
 install_shadowsocks_libev() {
@@ -1002,6 +967,8 @@ install_completed_libev() {
     echo -e "Your Password         : ${red} ${shadowsockspwd} ${plain}"
     echo -e "Your Encryption Method: ${red} ${shadowsockscipher} ${plain}"
     echo -e "Your Config File      : ${red} ${shadowsocks_libev_config} ${plain}"
+    echo -e "You can manage ${green}${software[0]}${plain} service by the following commands:"
+    echo -e "Start: ${green}service shadowsocks-libev start${plain}"
 }
 
 install_completed_r() {
@@ -1046,28 +1013,15 @@ qr_generate_r() {
 }
 
 qr_generate_rust() {
-    # Use ssurl if available for a proper SIP002 url; otherwise, fallback to basic base64 (method:password@host:port)
-    if [ -x /usr/local/bin/ssurl ] && [ -f "${shadowsocks_rust_config}" ]; then
-        local encoded=$(ssurl -e "${shadowsocks_rust_config}" 2>/dev/null | head -n 1)
-        if [ -n "$encoded" ] && [ "$(command -v qrencode)" ]; then
-            echo
-            echo "Your QR Code: (For Shadowsocks clients)"
-            echo -e "${green} ${encoded} ${plain}"
-            echo -n "$encoded" | qrencode -s8 -o ${cur_dir}/shadowsocks_rust_qr.png
-            echo "Your QR Code has been saved as a PNG file path:"
-            echo -e "${green} ${cur_dir}/shadowsocks_rust_qr.png ${plain}"
-        fi
-    else
-        if [ "$(command -v qrencode)" ]; then
-            local tmp=$(echo -n "${shadowsockscipher}:${shadowsockspwd}@$(get_ip):${shadowsocksport}" | base64 -w0)
-            local qr_code="ss://${tmp}"
-            echo
-            echo "Your QR Code: (For Shadowsocks clients)"
-            echo -e "${green} ${qr_code} ${plain}"
-            echo -n "${qr_code}" | qrencode -s8 -o ${cur_dir}/shadowsocks_rust_qr.png
-            echo "Your QR Code has been saved as a PNG file path:"
-            echo -e "${green} ${cur_dir}/shadowsocks_rust_qr.png ${plain}"
-        fi
+    if [ "$(command -v qrencode)" ]; then
+        local tmp=$(echo -n "${shadowsockscipher}:${shadowsockspwd}@$(get_ip):${shadowsocksport}" | base64 -w0)
+        local qr_code="ss://${tmp}"
+        echo
+        echo "Your QR Code: (For Shadowsocks clients)"
+        echo -e "${green} ${qr_code} ${plain}"
+        echo -n "${qr_code}" | qrencode -s8 -o ${cur_dir}/shadowsocks_rust_qr.png
+        echo "Your QR Code has been saved as a PNG file path:"
+        echo -e "${green} ${cur_dir}/shadowsocks_rust_qr.png ${plain}"
     fi
 }
 
@@ -1108,7 +1062,6 @@ install_cleanup() {
     rm -rf mbedtls-${mbedtls_file} mbedtls-${mbedtls_file}.tar.gz
     rm -rf ${shadowsocks_libev_file} ${shadowsocks_libev_file}.tar.gz
     rm -rf ${shadowsocks_r_file} ${shadowsocks_r_file}.tar.gz
-    # rust tarballs usually named like shadowsocks-<ver>-stable.<triple>.tar.xz
     rm -rf shadowsocks-*.tar.xz shadowsocks-*-linux-*.tar.xz 2>/dev/null || true
 }
 
@@ -1277,7 +1230,6 @@ uninstall_shadowsocks() {
         fi
     elif [ "${un_select}" == "3" ]; then
         uninstall_shadowsocks_rust
-        fi
     fi
     ldconfig
 }
