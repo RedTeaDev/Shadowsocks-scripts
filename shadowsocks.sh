@@ -25,23 +25,26 @@ plain='\033[0m'
 cur_dir=$(pwd)
 software=(Shadowsocks-libev ShadowsocksR)
 
-libsodium_file='libsodium-1.0.18'
-libsodium_url='https://github.com/jedisct1/libsodium/releases/download/1.0.18-RELEASE/libsodium-1.0.18.tar.gz'
+gh_dl_url='https://raw.githubusercontent.com/RedTeaDev/Shadowsocks-Install/master/'
+script_folder='scripts'
+
+libsodium_file='libsodium-1.0.20'
+libsodium_url='https://github.com/jedisct1/libsodium/releases/download/1.0.20-RELEASE/'"$libsodium_file"'.tar.gz'
 
 mbedtls_file='mbedtls-2.16.11'
 mbedtls_url='https://github.com/ARMmbed/mbedtls/archive/'"$mbedtls_file"'.tar.gz'
 
 shadowsocks_libev_init="/etc/init.d/shadowsocks-libev"
 shadowsocks_libev_config="/etc/shadowsocks-libev/config.json"
-shadowsocks_libev_centos="https://raw.githubusercontent.com/Yuk1n0/Shadowsocks-Install/master/shadowsocks-libev-centos"
-shadowsocks_libev_debian="https://raw.githubusercontent.com/Yuk1n0/Shadowsocks-Install/master/shadowsocks-libev-debian"
+shadowsocks_libev_centos="$gh_dl_url/$script_folder/shadowsocks-libev-centos"
+shadowsocks_libev_debian="$gh_dl_url/$script_folder/shadowsocks-libev-debian"
 
 shadowsocks_r_file="shadowsocksr-3.2.2"
 shadowsocks_r_url="https://github.com/shadowsocksrr/shadowsocksr/archive/3.2.2.tar.gz"
 shadowsocks_r_init="/etc/init.d/shadowsocks-r"
 shadowsocks_r_config="/etc/shadowsocks-r/config.json"
-shadowsocks_r_centos="https://raw.githubusercontent.com/Yuk1n0/Shadowsocks-Install/master/shadowsocksR-centos"
-shadowsocks_r_debian="https://raw.githubusercontent.com/Yuk1n0/Shadowsocks-Install/master/shadowsocksR-debian"
+shadowsocks_r_centos="$gh_dl_url/$script_folder/shadowsocksR-centos"
+shadowsocks_r_debian="$gh_dl_url/$script_folder/shadowsocksR-debian"
 
 common_ciphers=(
     aes-256-gcm
@@ -308,7 +311,7 @@ install_dependencies() {
     elif check_sys packageManager apt; then
         apt_depends=(
             autoconf automake build-essential cpio curl gcc gettext git gzip libpcre3 libpcre3-dev
-            libtool make openssl perl python python-dev python-setuptools qrencode unzip
+            libtool make openssl perl python3 qrencode unzip
             libc-ares-dev libev-dev libssl-dev zlib1g-dev
         )
 
