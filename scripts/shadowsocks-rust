@@ -1,0 +1,69 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          shadowsocks-rust
+# Required-Start:    $network $local_fs
+# Required-Stop:     $network $local_fs
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Shadowsocks-Rust Server
+### END INIT INFO
+# chkconfig: 2345 20 80
+# description: Shadowsocks-Rust Server
+
+NAME=ssserver
+DAEMON=/usr/local/bin/ssserver
+CONF=/etc/shadowsocks-rust/config.json
+PIDFILE=/var/run/ssserver.pid
+LOGFILE=/var/log/ssserver.log
+USER=nobody
+
+start() {
+    echo -n "Starting $NAME: "
+    if [ ! -x "$DAEMON" ]; then
+        echo "daemon not found: $DAEMON"
+        exit 1
+    fi
+    if [ ! -f "$CONF" ]; then
+        echo "config not found: $CONF"
+        exit 1
+    fi
+    nohup "$DAEMON" -c "$CONF" -a "$USER" >>"$LOGFILE" 2>&1 &
+    echo $! > "$PIDFILE"
+    echo "done."
+}
+
+stop() {
+    echo -n "Stopping $NAME: "
+    if [ -f "$PIDFILE" ]; then
+        kill $(cat "$PIDFILE") 2>/dev/null || true
+        rm -f "$PIDFILE"
+    else
+        pkill -f "$DAEMON" 2>/dev/null || true
+    fi
+    echo "done."
+}
+
+status() {
+    if [ -f "$PIDFILE" ] && ps -p $(cat "$PIDFILE") >/dev/null 2>&1; then
+        echo "$NAME is running (pid $(cat "$PIDFILE"))"
+        return 0
+    fi
+    pgrep -f "$DAEMON" >/dev/null 2>&1 && { echo "$NAME is running"; return 0; }
+    echo "$NAME is stopped"
+    return 3
+}
+
+restart() {
+    stop
+    sleep 1
+    start
+}
+
+case "$1" in
+    start) start ;;
+    stop) stop ;;
+    restart) restart ;;
+    status) status ;;
+    *) echo "Usage: $0 {start|stop|restart|status}" ; exit 1 ;;
+esac
+exit 0
