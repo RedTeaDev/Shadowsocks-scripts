@@ -5,7 +5,7 @@
 
 ## How to install server:
 ``` bash
-wget --no-check-certificate https://raw.githubusercontent.com/Yuk1n0/Shadowsocks-Install/master/shadowsocks.sh
+wget --no-check-certificate https://raw.githubusercontent.com/RedTeaDev/ss-install/master/shadowsocks.sh
 chmod +x shadowsocks.sh
 ./shadowsocks.sh 2>&1 | tee shadowsocks.log
 ```
@@ -52,7 +52,7 @@ camellia-256-cfb
 camellia-192-cfb
 camellia-128-cfb
 xchacha20-ietf-poly1305
-chacha20-ietf-poly1305
+chacha20-ietf-poly1305 (Prefered)
 chacha20-ietf
 chacha20
 salsa20
