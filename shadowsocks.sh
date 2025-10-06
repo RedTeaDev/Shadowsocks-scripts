@@ -25,7 +25,7 @@ plain='\033[0m'
 cur_dir=$(pwd)
 software=(Shadowsocks-libev ShadowsocksR)
 
-gh_dl_url='https://raw.githubusercontent.com/RedTeaDev/Shadowsocks-Install/master/'
+gh_dl_url='https://raw.githubusercontent.com/RedTeaDev/ss-install/master/'
 script_folder='scripts'
 
 libsodium_file='libsodium-1.0.20'
