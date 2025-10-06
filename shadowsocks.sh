@@ -324,8 +324,20 @@ install_dependencies() {
 
 install_prepare_password() {
     echo "Please enter password for ${software[${selected} - 1]}"
-    read -p "(Default password: shadowsocks):" shadowsockspwd
-    [ -z "${shadowsockspwd}" ] && shadowsockspwd="shadowsocks"
+    read -p "(Default password will be generated if left blank):" shadowsockspwd
+    if [ -z "${shadowsockspwd}" ]; then
+        if command -v openssl >/dev/null 2>&1; then
+            shadowsockspwd=$(openssl rand -base64 16)
+        else
+            shadowsockspwd="shadowsocks"
+            echo -e "[${yellow}Warning${plain}] Failed to generate a random password, set to default password: ${shadowsockspwd}"
+        fi
+    fi
+    # Password strength check
+    if [[ ${#shadowsockspwd} -lt 8 ]] || ! [[ "$shadowsockspwd" =~ [A-Z] ]] || ! [[ "$shadowsockspwd" =~ [a-z] ]] || ! [[ "$shadowsockspwd" =~ [0-9] ]] || ! [[ "$shadowsockspwd" =~ [^A-Za-z0-9] ]]; then
+        echo -e "[${yellow}Warning${plain}] weak password detected! You may be vulnerable to Partitioning Oracle Attack!"
+        echo -e "[${yellow}Warning${plain}] See: https://www.usenix.org/system/files/sec21summer_len.pdf"
+    fi
     echo
     echo "password = ${shadowsockspwd}"
     echo
@@ -352,7 +364,7 @@ install_prepare_port() {
 
 install_prepare_cipher() {
     while true; do
-        echo -e "Please select stream cipher for ${software[${selected} - 1]}:"
+        echo -e "Please select stream cipher for ${software[${selected} - 1]} (AEAD cipher is recommended):"
 
         if [ "${selected}" == "1" ]; then
             for ((i = 1; i <= ${#common_ciphers[@]}; i++)); do
@@ -392,8 +404,48 @@ install_prepare_cipher() {
 
         echo
         echo "cipher = ${shadowsockscipher}"
+        # Cipher security check
+        aead_ciphers=(aes-256-gcm aes-192-gcm aes-128-gcm chacha20-ietf-poly1305 xchacha20-ietf-poly1305)
+        is_aead=false
+        for ac in "${aead_ciphers[@]}"; do
+            if [ "${shadowsockscipher}" == "$ac" ]; then
+                is_aead=true
+                break
+            fi
+        done
+        if [ "$is_aead" == "false" ]; then
+            echo -e "[${yellow}Warning${plain}] Chosen cipher is not AEAD cipher, you are vulnerable to GFW active probing!"
+        fi
         echo
         break
+    done
+}
+
+install_prepare_udp() {
+    # Ask for UDP support on Shadowsocks-libev
+    while true; do
+        echo -e "Would you like to enable UDP support for ${software[${selected} - 1]}?"
+        read -p "(y/n, Default: n):" yn
+        [ -z "$yn" ] && yn="n"
+        if [[ $yn == [Yy] ]]; then
+            shadowsocksudp="tcp_and_udp"
+            echo
+            echo "UDP support = enabled"
+            echo
+            # Check password strength if UDP is enabled
+            if [[ ${#shadowsockspwd} -lt 8 ]] || ! [[ "$shadowsockspwd" =~ [A-Z] ]] || ! [[ "$shadowsockspwd" =~ [a-z] ]] || ! [[ "$shadowsockspwd" =~ [0-9] ]] || ! [[ "$shadowsockspwd" =~ [^A-Za-z0-9] ]]; then
+                echo -e "[${yellow}Warning${plain}] UDP with weak password will be vulnerable to Partitioning Oracle Attack, Either set a strong password or disable UDP support!"
+            fi
+            break
+        elif [[ $yn == [Nn] ]]; then
+            shadowsocksudp="tcp_only"
+            echo
+            echo "UDP support = disabled"
+            echo
+            break
+        else
+            echo -e "[${red}Error${plain}] Please only enter y (yes) or n (no)"
+        fi
     done
 }
 
@@ -463,6 +515,7 @@ install_prepare() {
     if [ "${selected}" == "1" ]; then
         install_prepare_password
         install_prepare_port
+        install_prepare_udp
         install_prepare_cipher
     elif [ "${selected}" == "2" ]; then
         install_prepare_password
@@ -494,7 +547,8 @@ config_shadowsocks() {
     "method":"${shadowsockscipher}",
     "timeout":300,
     "user":"nobody",
-    "fast_open":false
+    "fast_open":false,
+    "mode": "${shadowsocksudp}"
 }
 EOF
 
@@ -702,6 +756,7 @@ install_completed_libev() {
     echo -e "Your Server Port      : ${red} ${shadowsocksport} ${plain}"
     echo -e "Your Password         : ${red} ${shadowsockspwd} ${plain}"
     echo -e "Your Encryption Method: ${red} ${shadowsockscipher} ${plain}"
+    echo -e "Your Config File      : ${red} ${shadowsocks_libev_config} ${plain}"
 }
 
 install_completed_r() {
@@ -715,6 +770,7 @@ install_completed_r() {
     echo -e "Your Protocol         : ${red} ${shadowsockprotocol} ${plain}"
     echo -e "Your obfs             : ${red} ${shadowsockobfs} ${plain}"
     echo -e "Your Encryption Method: ${red} ${shadowsockscipher} ${plain}"
+    echo -e "Your Config File      : ${red} ${shadowsocks_r_config} ${plain}"
 }
 
 qr_generate_libev() {
