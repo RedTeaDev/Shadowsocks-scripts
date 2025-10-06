@@ -95,14 +95,14 @@ r_ciphers=(
     rc4-md5
 )
 
-# For Shadowsocks-Rust only
+# AEAD only for Shadowsocks-Rust
 rust_ciphers=(
     chacha20-ietf-poly1305
     aes-128-gcm
     aes-256-gcm
 )
 
-# Reference URL:
+# For Shadowsocks-Rust only, https://gfw.report/blog/ss_advise/en/#for-circumvention-tool-develop# For Shadowsocks-Rust only
 # https://github.com/shadowsocksrr/shadowsocks-rss/blob/master/ssr.md
 # https://github.com/shadowsocksrr/shadowsocksr/commit/a3cf0254508992b7126ab1151df0c2f10bf82680
 protocols=(
@@ -326,7 +326,7 @@ install_dependencies() {
         done
     elif check_sys packageManager apt; then
         apt_depends=(
-            autoconf automake build-essential cpio curl gcc gettext git gzip libpcre3 libpcre3-dev
+            autoconf automake build-essential cpio curl gcc gettext git gzip
             libtool make openssl perl python3 qrencode unzip xz-utils
             libc-ares-dev libev-dev libssl-dev zlib1g-dev
         )
@@ -335,6 +335,19 @@ install_dependencies() {
         for depend in ${apt_depends[@]}; do
             error_detect_depends "apt -y install ${depend}"
         done
+
+        # PCRE: prefer libpcre3 on Ubuntu/Debian that still provide it; otherwise fall back to PCRE2
+        echo -e "[${green}Info${plain}] Installing PCRE development libraries (libpcre3 or libpcre2)..."
+        local pcre_ok=0
+        apt -y install libpcre3 libpcre3-dev >/dev/null 2>&1 && pcre_ok=1
+        if [ ${pcre_ok} -eq 0 ]; then
+            echo -e "[${yellow}Warning${plain}] libpcre3 not available, trying libpcre2-dev instead..."
+            apt -y install libpcre2-dev >/dev/null 2>&1 && pcre_ok=1
+        fi
+        if [ ${pcre_ok} -eq 0 ]; then
+            echo -e "[${red}Error${plain}] Failed to install PCRE development libraries (tried libpcre3{,-dev} and libpcre2-dev)."
+            exit 1
+        fi
     fi
 }
 
